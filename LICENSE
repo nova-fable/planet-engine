@@ -1,0 +1,41 @@
+MIT License
+
+Copyright (c) 2025 nova-fable
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+关于第三方组件
+--------------
+
+本项目内嵌 Three.js (r160)，其版权与许可如下：
+
+  Copyright © 2010-2023 three.js authors
+  Released under the MIT License
+  https://github.com/mrdoob/three.js/blob/dev/LICENSE
+
+关于《流浪地球》相关设定
+------------------------
+
+"流浪地球"、"行星发动机" 等名称、世界观设定及相关知识产权的权利
+归原著作者刘慈欣及影片权利方所有。
+
+本项目为非商业性的技术演示与学习用途。模型系依据公开资料独立进行的
+程序化几何重建，不包含、不分发任何官方素材（模型、贴图、影像或音频）。
