@@ -1,20 +1,32 @@
 name: Deploy to GitHub Pages
 
-# 推送到 master 即自动构建并发布到 gh-pages 分支。
+# 推送到 master 即自动测试、构建并发布到 GitHub Pages。
+#
+# 采用 artifact 部署方式（actions/deploy-pages）：
+#   · 不需要 gh-pages 分支，产物作为 Actions artifact 直接发布
+#   · 源码与产物分离，tests/ 等开发文件不会暴露到线上
+#   · 避免了「Action 推到 gh-pages、Pages 却读 master」的分支错位问题
+#
 # 也可在 Actions 页面手动触发（workflow_dispatch）。
 on:
   push:
     branches: [master]
   workflow_dispatch:
 
-# GITHUB_TOKEN 需要写权限才能推送 gh-pages 分支
+# Pages 部署所需权限：
+#   contents: read  —— 读取仓库内容
+#   pages: write    —— 发布到 Pages
+#   id-token: write —— OIDC 令牌，供 deploy-pages 校验来源
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
-# 同一时间只允许一个部署；新的推送取消进行中的旧任务
+# 同一时间只允许一个部署；新的推送取消进行中的旧任务。
+# 注意：不要对部署任务使用 cancel-in-progress，否则可能中断正在进行的发布。
 concurrency:
-  group: pages-deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # ── 1. 质量门禁：两套测试必须全绿，否则不部署 ──
@@ -51,7 +63,7 @@ jobs:
           console.log('vendor 导入图完整');
           "
 
-  # ── 2. 构建：本项目零构建，仅做产物校验与准备 ──
+  # ── 2. 构建：本项目零构建，仅做产物校验与打包 ──
   build:
     name: 构建产物
     needs: test
@@ -59,6 +71,9 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
 
       - name: 校验入口文件存在
         run: |
@@ -68,71 +83,46 @@ jobs:
           done
           echo "入口文件校验通过"
 
-      - name: 写入 CNAME（自定义域名）
-        run: |
-          echo "planet-engine.zxinrun.cn" > CNAME
-          cat CNAME
-
       - name: 打包站点产物
         run: |
+          set -e
           mkdir -p _site
-          # 只发布运行页面真正需要的文件，排除测试与开发脚本
-          cp -R index.html favicon.svg CNAME .nojekyll src vendor _site/
-          # 若仓库根存在其它静态资源目录可按需追加
+          # 只发布运行页面真正需要的文件，排除 tests/ 与开发脚本
+          cp -R index.html favicon.svg src vendor _site/
+          # 自定义域名与 Jekyll 开关
+          echo "planet-engine.zxinrun.cn" > _site/CNAME
+          touch _site/.nojekyll
           echo "--- 产物清单 ---"
-          find _site -type f | sort | head -50
+          find _site -type f | sort
           echo "--- 产物体积 ---"
           du -sh _site
 
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: site
           path: _site
-          retention-days: 7
 
-  # ── 3. 部署：推送到 gh-pages 分支 ──
+  # ── 3. 部署：发布到 GitHub Pages ──
   deploy:
-    name: 发布到 gh-pages
+    name: 发布到 GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 下载产物
-        uses: actions/download-artifact@v4
-        with:
-          name: site
-          path: _site
-
-      - name: 确认 CNAME 与 .nojekyll
-        run: |
-          echo "planet-engine.zxinrun.cn" > _site/CNAME
-          touch _site/.nojekyll
-          ls -la _site
-
-      - name: 推送到 gh-pages 分支
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
-          publish_branch: gh-pages
-          # 保留 gh-pages 上的历史，避免无谓的强制推送
-          force_orphan: false
-          user_name: 'github-actions[bot]'
-          user_email: '41898282+github-actions[bot]@users.noreply.github.com'
-          commit_message: 'deploy: ${{ github.event.head_commit.message || github.sha }}'
+      - name: 部署到 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
       - name: 部署摘要
         run: |
           {
             echo "## 部署完成"
             echo ""
-            echo "- 分支：\`gh-pages\`"
             echo "- 提交：\`${{ github.sha }}\`"
+            echo "- 站点：${{ steps.deployment.outputs.page_url }}"
             echo "- 域名：https://planet-engine.zxinrun.cn"
             echo ""
-            echo "> 首次部署需在 **Settings → Pages** 中选择 \`gh-pages\` 分支作为来源，"
-            echo "> 并勾选 **Enforce HTTPS**。"
+            echo "> 采用 artifact 部署方式，不再使用 gh-pages 分支。"
           } >> "$GITHUB_STEP_SUMMARY"
