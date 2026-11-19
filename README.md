@@ -175,7 +175,7 @@ planet-engine/
 ├── AGENTS.md                  开发规范（编码 / 提交 / 协作）
 ├── README.md
 ├── .github/workflows/
-│   └── deploy.yml             自动部署到 gh-pages 分支
+│   └── deploy.yml             自动部署到 GitHub Pages（artifact 方式）
 ├── src/
 │   ├── main.js                编排：渲染器 / 相机 / 灯光 / 主题 / 拾取 / 主循环
 │   ├── registry.js            共享契约：部件注册表、分组定义
@@ -223,38 +223,64 @@ planet-engine/
 
 ## 部署
 
-推送到 `master` 即自动构建并发布到 `gh-pages` 分支，由 GitHub Pages 托管。
+推送到 `master` 即自动测试、构建并发布到 GitHub Pages。
+
+采用 **artifact 部署方式**（`actions/deploy-pages`），**不使用 `gh-pages` 分支**：
 
 ```
-master ──push──▶ GitHub Actions ──▶ gh-pages 分支 ──▶ GitHub Pages
-                                                        │
+master ──push──▶ GitHub Actions ──▶ artifact ──▶ GitHub Pages
+                 (test → build → deploy)              │
                                           planet-engine.zxinrun.cn
 ```
 
-工作流见 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)。
+选择 artifact 方式的原因：
+
+- **不需要额外分支**，源码与产物分离，避免「Action 推到 A 分支、Pages 却读 B 分支」的错位
+- `tests/`、`AGENTS.md`、`serve.mjs` 等开发文件**不会暴露到线上**
+- 使用 GitHub 原生 Pages 环境，部署状态与历史在 Actions 页面可见
+
+工作流见 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)，
+三阶段流水线 `test → build → deploy`，前序失败即阻断发布。
 
 ### 首次部署需在 GitHub 网页端完成
 
 由于 Actions 无权修改仓库设置，以下**需手动操作一次**：
 
 1. **Settings → Pages → Build and deployment**
-   - Source 选择 **Deploy from a branch**
-   - Branch 选择 **`gh-pages`** / 目录 **`/ (root)`**，保存
+   - Source 选择 **GitHub Actions**（不是 "Deploy from a branch"）
 2. **Settings → Pages → Custom domain** 填入 `planet-engine.zxinrun.cn`，保存
-3. 勾选 **Enforce HTTPS**（证书签发通常需几分钟到数小时）
+3. 勾选 **Enforce HTTPS**
+
+> ⚠️ **关键**：Source 必须选 **GitHub Actions**。若停留在
+> "Deploy from a branch" 并选择了 `master`，Pages 会直接发布 master
+> 根目录，导致 `tests/` 等文件被暴露，且与工作流不同步。
+
+### 从旧的分支部署方式迁移
+
+若此前用过 `gh-pages` 分支方式，迁移只需两步：
+
+1. 确认 Pages 的 Source 已改为 **GitHub Actions**
+2. 删除远程 `gh-pages` 分支：
+
+   ```bash
+   git push origin --delete gh-pages
+   ```
+
+   > 顺序不能颠倒：**先改 Source，再删分支**。反过来会让站点在改完设置前处于无内容状态。
 
 ### DNS 配置
 
-`CNAME` 文件已写入仓库，DNS 需配置：
+`CNAME` 文件由工作流在构建时写入，DNS 需配置：
 
 | 类型 | 主机记录 | 记录值 |
 |---|---|---|
-| CNAME | `planet-engine` | `<owner>.github.io` |
+| CNAME | `planet-engine` | `nova-fable.github.io` |
 
-> ⚠️ **注意**：当前 `planet-engine.zxinrun.cn` 实际解析到 **`xinrun0928.github.io`**，
-> 而目标仓库位于 **`nova-fable`** 组织下。GitHub Pages 签发 HTTPS 证书时会校验
-> 域名解析与站点归属是否一致，**两者不匹配会导致 `Enforce HTTPS` 无法启用**
-> （现已可复现：访问该域名返回 `SSL: no alternative certificate subject name matches`）。
+> ⚠️ **注意**：当前 `planet-engine.zxinrun.cn` 解析到 **`xinrun0928.github.io`**，
+> 而仓库位于 **`nova-fable`** 组织下。GitHub Pages 按 `Host` 头匹配
+> 「哪个账号拥有该域名」，**不匹配时返回 `404 Site not found`**
+> （已实测：即使强制解析到 GitHub 正确的 IP，仍返回 Site not found，
+> 证明问题不在 DNS 解析层，而在域名与站点的归属关系）。
 >
 > 请二选一：
 > - 把 CNAME 记录指向 **`nova-fable.github.io`**，或

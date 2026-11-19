@@ -232,7 +232,7 @@ feat(engine): 按官方设定将喷口改为朝上并新增点火核心
 fix(animation): 修复序列抢占时 promise 永不 settle
 perf(geometry): 将 384 颗地脚锚栓改为实例化渲染
 docs: 补充 MOREVFX 官方资料校正说明
-ci: 增加 gh-pages 自动部署工作流
+ci: 增加 GitHub Pages 自动部署工作流
 
 # ❌ 差
 update                      # 没说什么
@@ -264,9 +264,12 @@ BREAKING CHANGE: source 由自由文本改为 official/derived/extrapolated，
 
 | 分支 | 用途 |
 |---|---|
-| `master` | 主分支，**始终可运行**，推送即自动部署 |
-| `gh-pages` | **由 CI 自动生成，禁止手动推送** |
+| `master` | 主分支，**始终可运行**，推送即自动测试并发布到 Pages |
 | `feat/*` `fix/*` | 功能与修复分支 |
+
+> 本项目采用 **artifact 部署方式**（`actions/deploy-pages`），**不使用 `gh-pages` 分支**。
+> 若在历史仓库中见到该分支，可安全删除——先确认 Pages 的 Source 已设为
+> **GitHub Actions**，再执行 `git push origin --delete gh-pages`。
 
 ### 6.2 合并前检查清单
 
