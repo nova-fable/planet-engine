@@ -1,0 +1,138 @@
+name: Deploy to GitHub Pages
+
+# 推送到 master 即自动构建并发布到 gh-pages 分支。
+# 也可在 Actions 页面手动触发（workflow_dispatch）。
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# GITHUB_TOKEN 需要写权限才能推送 gh-pages 分支
+permissions:
+  contents: write
+
+# 同一时间只允许一个部署；新的推送取消进行中的旧任务
+concurrency:
+  group: pages-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. 质量门禁：两套测试必须全绿，否则不部署 ──
+  test:
+    name: 运行测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 数据契约测试
+        run: node tests/contracts.test.mjs
+
+      - name: 装配与几何测试
+        run: node tests/test-assembly.mjs
+
+      - name: 校验 vendor 导入图完整
+        run: |
+          node -e "
+          const fs = require('fs');
+          let bad = 0;
+          for (const f of fs.readdirSync('vendor/addons')) {
+            const src = fs.readFileSync('vendor/addons/' + f, 'utf8');
+            const unresolved = [...src.matchAll(/from '([^']+)'/g)].map(m => m[1])
+              .filter(p => p !== '../three.module.js' && !fs.existsSync('vendor/addons/' + p.replace('./', '')));
+            if (unresolved.length) { console.log('未解析的导入:', f, unresolved); bad++; }
+          }
+          if (bad) process.exit(1);
+          console.log('vendor 导入图完整');
+          "
+
+  # ── 2. 构建：本项目零构建，仅做产物校验与准备 ──
+  build:
+    name: 构建产物
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 校验入口文件存在
+        run: |
+          set -e
+          for f in index.html src/main.js vendor/three.module.js; do
+            test -f "$f" || { echo "缺少必需文件: $f"; exit 1; }
+          done
+          echo "入口文件校验通过"
+
+      - name: 写入 CNAME（自定义域名）
+        run: |
+          echo "planet-engine.zxinrun.cn" > CNAME
+          cat CNAME
+
+      - name: 打包站点产物
+        run: |
+          mkdir -p _site
+          # 只发布运行页面真正需要的文件，排除测试与开发脚本
+          cp -R index.html favicon.svg CNAME .nojekyll src vendor _site/
+          # 若仓库根存在其它静态资源目录可按需追加
+          echo "--- 产物清单 ---"
+          find _site -type f | sort | head -50
+          echo "--- 产物体积 ---"
+          du -sh _site
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: _site
+          retention-days: 7
+
+  # ── 3. 部署：推送到 gh-pages 分支 ──
+  deploy:
+    name: 发布到 gh-pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 下载产物
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: _site
+
+      - name: 确认 CNAME 与 .nojekyll
+        run: |
+          echo "planet-engine.zxinrun.cn" > _site/CNAME
+          touch _site/.nojekyll
+          ls -la _site
+
+      - name: 推送到 gh-pages 分支
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          # 保留 gh-pages 上的历史，避免无谓的强制推送
+          force_orphan: false
+          user_name: 'github-actions[bot]'
+          user_email: '41898282+github-actions[bot]@users.noreply.github.com'
+          commit_message: 'deploy: ${{ github.event.head_commit.message || github.sha }}'
+
+      - name: 部署摘要
+        run: |
+          {
+            echo "## 部署完成"
+            echo ""
+            echo "- 分支：\`gh-pages\`"
+            echo "- 提交：\`${{ github.sha }}\`"
+            echo "- 域名：https://planet-engine.zxinrun.cn"
+            echo ""
+            echo "> 首次部署需在 **Settings → Pages** 中选择 \`gh-pages\` 分支作为来源，"
+            echo "> 并勾选 **Enforce HTTPS**。"
+          } >> "$GITHUB_STEP_SUMMARY"
