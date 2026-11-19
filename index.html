@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark light" />
+<title>行星发动机 · Planetary Engine — 爆炸拆解可视化</title>
+
+<meta name="description" content="基于《流浪地球》官方设定重建的行星发动机三维交互拆解可视化：33 个部件、可点击展开、模拟点火与发射，仅使用 Three.js。" />
+<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+<link rel="apple-touch-icon" href="./favicon.svg" />
+
+<link rel="stylesheet" href="./src/styles/theme.css" />
+<link rel="stylesheet" href="./src/styles/panels.css" />
+
+<!-- 主题在首帧前落定，避免闪白 -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('pe.theme');
+      if (saved !== 'dark' && saved !== 'light') {
+        saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', saved);
+    } catch (e) { /* 忽略 */ }
+  })();
+</script>
+</head>
+
+<body data-theme="dark">
+
+<!-- ═══════════ 3D 渲染容器（CSS 渐变背景透过透明画布显示） ═══════════ -->
+<div id="canvas-wrap" aria-label="三维视图"></div>
+
+<!-- ═══════════ 顶部标题栏 / 主控按钮 ═══════════ -->
+<header id="hud-top" class="hud">
+  <div class="hud-brand">
+    <div class="hud-mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6">
+        <ellipse cx="16" cy="16" rx="14" ry="5.4" />
+        <ellipse cx="16" cy="16" rx="14" ry="5.4" transform="rotate(60 16 16)" />
+        <ellipse cx="16" cy="16" rx="14" ry="5.4" transform="rotate(-60 16 16)" />
+        <circle cx="16" cy="16" r="3.2" fill="currentColor" stroke="none" />
+      </svg>
+    </div>
+    <div class="hud-titles">
+      <h1 class="hud-title">
+        <span class="zh">行星发动机</span>
+        <span class="sep">·</span>
+        <span class="sub" id="hud-model">重聚变发动机 · 一号机</span>
+      </h1>
+      <p class="hud-sub">
+        <span id="hud-meta-sub">流浪地球计划 · 移山计划核心推进装置</span>
+        <span class="hud-tags">
+          <span class="tag tag-official">官方设定</span>
+          <span class="tag tag-derived">按比例推算</span>
+          <span class="tag tag-extrapolated">工程外推</span>
+        </span>
+      </p>
+    </div>
+  </div>
+
+  <nav class="hud-actions" aria-label="主控">
+    <button id="btn-explode" class="btn btn-primary" type="button" title="E — 展开 / 收拢爆炸拆解视图">
+      <span class="ico" aria-hidden="true">✥</span><span class="txt">拆解</span>
+    </button>
+    <button id="btn-reset" class="btn" type="button" title="R — 视角复位">
+      <span class="ico" aria-hidden="true">⟲</span><span class="txt">复位</span>
+    </button>
+    <button id="btn-labels" class="btn" type="button" title="L — 显示 / 隐藏部件标注">
+      <span class="ico" aria-hidden="true">⛶</span><span class="txt">标注</span>
+    </button>
+    <button id="btn-ignite" class="btn" type="button" title="I — 模拟点火序列">
+      <span class="ico" aria-hidden="true">✦</span><span class="txt">点火</span>
+    </button>
+    <button id="btn-launch" class="btn" type="button" title="模拟发射序列">
+      <span class="ico" aria-hidden="true">▲</span><span class="txt">发射</span>
+    </button>
+    <button id="btn-theme" class="btn btn-theme" type="button" title="T — 切换深色 / 浅色主题">
+      <span class="ico" aria-hidden="true">◐</span><span class="txt">深色科技</span>
+    </button>
+  </nav>
+
+  <button id="btn-menu" class="btn btn-icon hud-menu-btn" type="button" aria-label="展开面板" aria-expanded="false">
+    <span class="ico" aria-hidden="true">☰</span>
+  </button>
+</header>
+
+<!-- ═══════════ 全局进度条（setProgress 驱动） ═══════════ -->
+<div id="progress" class="progress" role="progressbar" aria-hidden="true">
+  <div class="progress-label" id="progress-label">序列执行中</div>
+  <div class="progress-track"><i class="progress-fill" id="progress-fill"></i></div>
+  <div class="progress-pct" id="progress-pct">0%</div>
+</div>
+
+<!-- ═══════════ 左侧：部件清单 ═══════════ -->
+<section id="panel-parts" class="panel panel-left" data-panel="parts" aria-label="部件清单">
+  <header class="panel-head">
+    <span class="panel-icon" aria-hidden="true">▤</span>
+    <h2 class="panel-title">部件清单<span class="en">PARTS</span></h2>
+    <span class="panel-count" id="parts-count">0 / 0</span>
+    <button class="collapse-btn" type="button" data-collapse="panel-parts" aria-label="折叠部件清单" title="折叠 / 展开">▾</button>
+  </header>
+
+  <div class="panel-body">
+    <div class="panel-tools">
+      <input id="parts-search" class="input-search" type="search" placeholder="搜索部件 / 英文名 / 分类…" aria-label="搜索部件" autocomplete="off" />
+      <div class="tool-row">
+        <button class="btn btn-xs" type="button" data-group-action="all">全选</button>
+        <button class="btn btn-xs" type="button" data-group-action="none">全不选</button>
+        <button class="btn btn-xs" type="button" data-group-action="invert">反选</button>
+        <button class="btn btn-xs" type="button" data-group-action="explode">仅显展开组</button>
+      </div>
+      <details class="filters-more" id="filters-more">
+        <summary>分组筛选与图例 <span id="filter-summary">9 / 9 组</span></summary>
+        <div class="group-filters" id="group-filters" aria-label="分组筛选"></div>
+        <div class="legend" aria-label="颜色图例"></div>
+      </details>
+    </div>
+
+    <div class="parts-scroll" id="parts-scroll">
+      <div id="parts-list" class="parts-list">
+        <div class="list-empty">正在装配模型…</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 右侧：部件详情 ═══════════ -->
+<section id="panel-detail" class="panel panel-right" data-panel="detail" aria-label="部件详情">
+  <header class="panel-head">
+    <span class="panel-icon" aria-hidden="true">◈</span>
+    <h2 class="panel-title">部件详情<span class="en">DETAIL</span></h2>
+    <button class="collapse-btn" type="button" data-collapse="panel-detail" aria-label="折叠部件详情" title="折叠 / 展开">▾</button>
+  </header>
+  <div class="panel-body">
+    <div class="detail-scroll" id="detail-body">
+      <div class="detail-idle">
+        <div class="idle-glyph" aria-hidden="true">◎</div>
+        <p class="idle-title">未选择部件</p>
+        <p class="idle-hint">
+          在三维视图中点击任意零件，或从左侧<b>部件清单</b>中选择一行，
+          此处将显示该部件的功能、用料、参数与<b>来源等级</b>。
+        </p>
+        <ul class="idle-tips">
+          <li><kbd>E</kbd> 展开爆炸拆解视图</li>
+          <li><kbd>空格</kbd> 自动旋转巡视</li>
+          <li><kbd>Esc</kbd> 取消选择</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 左下：操作引导 ═══════════ -->
+<section id="panel-guide" class="panel panel-guide" data-panel="guide" aria-label="操作引导">
+  <header class="panel-head">
+    <span class="panel-icon" aria-hidden="true">⌘</span>
+    <h2 class="panel-title">操作引导<span class="en">GUIDE</span></h2>
+    <button class="collapse-btn" type="button" data-collapse="panel-guide" aria-label="折叠操作引导" title="折叠 / 展开">▾</button>
+  </header>
+
+  <div class="panel-body">
+    <!-- 视图预设 -->
+    <div class="block">
+      <div class="block-title">视角预设<span class="en">VIEW</span></div>
+      <div id="btn-view" class="segmented" role="group" aria-label="视角预设">
+        <button class="seg is-active" type="button" data-view="iso">等轴</button>
+        <button class="seg" type="button" data-view="front">正视</button>
+        <button class="seg" type="button" data-view="side">侧视</button>
+        <button class="seg" type="button" data-view="top">俯视</button>
+        <button class="seg" type="button" data-view="base">基座</button>
+        <button class="seg" type="button" data-view="nozzle">喷口</button>
+      </div>
+    </div>
+
+    <!-- 开关 -->
+    <div class="block">
+      <div class="block-title">显示选项<span class="en">DISPLAY</span></div>
+      <div class="switch-row">
+        <label class="switch">
+          <input type="checkbox" id="chk-autorotate" />
+          <span class="switch-track"><i></i></span>
+          <span class="switch-text">自动旋转 <kbd>空格</kbd></span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="chk-labels" checked />
+          <span class="switch-track"><i></i></span>
+          <span class="switch-text">部件标注 <kbd>L</kbd></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 拆解控制 -->
+    <div class="block">
+      <div class="block-title">爆炸拆解<span class="en">EXPLODE</span></div>
+      <div class="tool-row">
+        <button class="btn btn-xs" type="button" data-explode="1">拆解全部</button>
+        <button class="btn btn-xs" type="button" data-explode="0">全部复位</button>
+      </div>
+      <label class="range-row">
+        <span>错峰系数</span>
+        <input type="range" id="explode-stagger" min="0" max="100" value="45" />
+        <output id="explode-stagger-out">45</output>
+      </label>
+      <div class="hint">拆解顺序按 <code>PartRecord.order</code> 错峰推进。</div>
+    </div>
+
+    <!-- 导览 -->
+    <div class="block">
+      <div class="block-title">分步导览<span class="en">TOUR</span></div>
+      <div class="tool-row">
+        <button class="btn btn-xs" type="button" id="tour-prev" title="上一组">◀ 上一组</button>
+        <button class="btn btn-xs" type="button" id="tour-next" title="下一组">下一组 ▶</button>
+        <button class="btn btn-xs" type="button" id="tour-play" title="自动播放">▶ 自动</button>
+        <button class="btn btn-xs" type="button" id="tour-stop" title="停止导览">■ 停止</button>
+      </div>
+      <div class="progress-inline"><i id="tour-bar"></i></div>
+      <div class="tour-body" id="tour-body">
+        <div class="tour-step" id="tour-step">准备就绪</div>
+        <div class="tour-text" id="tour-text">按「下一组」开始沿结构分层巡视。</div>
+      </div>
+    </div>
+
+    <!-- 序列模拟 -->
+    <div class="block">
+      <div class="block-title">模拟序列<span class="en">SEQUENCE</span></div>
+      <div class="tool-row">
+        <button class="btn btn-xs" type="button" data-sim="ignition">模拟点火 <kbd>I</kbd></button>
+        <button class="btn btn-xs" type="button" data-sim="launch">模拟发射</button>
+        <button class="btn btn-xs" type="button" id="sim-stop" disabled>中止</button>
+      </div>
+      <div class="progress-inline"><i id="sim-bar"></i></div>
+      <div class="sim-readout" id="sim-readout">状态：待机 · 反应室 300 K</div>
+      <ol class="sim-steps" id="sim-steps"></ol>
+    </div>
+
+    <!-- 快捷键 -->
+    <div class="block">
+      <div class="block-title">快捷键<span class="en">SHORTCUTS</span></div>
+      <ul class="cheat">
+        <li><kbd>E</kbd><span>拆解 / 复位</span></li>
+        <li><kbd>R</kbd><span>视角复位</span></li>
+        <li><kbd>L</kbd><span>标注开关</span></li>
+        <li><kbd>T</kbd><span>主题切换</span></li>
+        <li><kbd>I</kbd><span>模拟点火</span></li>
+        <li><kbd>空格</kbd><span>自动旋转</span></li>
+        <li><kbd>Esc</kbd><span>取消选择</span></li>
+        <li><kbd>拖拽</kbd><span>旋转视角</span></li>
+        <li><kbd>滚轮</kbd><span>缩放</span></li>
+      </ul>
+    </div>
+
+    <!-- 来源说明 -->
+    <div class="block block-note">
+      <div class="block-title">资料来源说明<span class="en">SOURCES</span></div>
+      <p class="note-text" id="meta-note"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 右下：事件日志 ═══════════ -->
+<section id="panel-log" class="panel panel-log" data-panel="log" aria-label="事件日志">
+  <header class="panel-head">
+    <span class="panel-icon" aria-hidden="true">▤</span>
+    <h2 class="panel-title">事件日志<span class="en">LOG</span></h2>
+    <span class="panel-count" id="log-count">0</span>
+    <button class="btn btn-icon" type="button" id="log-clear" title="清空日志" aria-label="清空日志">⨯</button>
+    <button class="collapse-btn" type="button" data-collapse="panel-log" aria-label="折叠日志" title="折叠 / 展开">▾</button>
+  </header>
+  <div class="panel-body">
+    <div class="log-list" id="log-list" role="log" aria-live="polite"></div>
+    <div class="log-foot">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="log-status">就绪</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 部件标注覆盖层（labels.js 使用） ═══════════ -->
+<div id="label-layer" class="label-layer" aria-hidden="true"></div>
+
+<!-- ═══════════ 首个交互提示 ═══════════ -->
+<div id="keyhint" class="keyhint">
+  <kbd>E</kbd> 拆解 &nbsp;·&nbsp; <kbd>空格</kbd> 自动旋转 &nbsp;·&nbsp; <kbd>T</kbd> 切换主题 &nbsp;·&nbsp; 点击零件查看详情
+  <button class="btn btn-xs" type="button" id="keyhint-close" aria-label="关闭提示">知道了</button>
+</div>
+
+<!-- ═══════════ 加载遮罩 ═══════════ -->
+<div id="loading">
+  <div class="loading-inner">
+    <div class="loading-ring" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h2>行星发动机 · Planetary Engine</h2>
+    <p>正在装配 11,000 m 重聚变发动机…</p>
+    <div class="loading-bar"><i></i></div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
